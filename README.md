@@ -96,7 +96,28 @@ flowchart TD
 
 ## 4. How to Start the Application
 
-### Option A: 1-Command Startup with Docker Compose (Recommended)
+### Option A: 1-Click Startup Scripts (Fastest)
+
+#### On Linux / macOS / Git Bash:
+```bash
+chmod +x run.sh
+./run.sh
+# Or with Docker:
+./run.sh --docker
+```
+
+#### On Windows (PowerShell or Command Prompt):
+```powershell
+# PowerShell:
+.\run.ps1
+
+# Or double-click / run:
+run.bat
+```
+
+---
+
+### Option B: 1-Command Startup with Docker Compose
 
 Make sure Docker and Docker Compose are installed and running:
 
@@ -104,7 +125,7 @@ Make sure Docker and Docker Compose are installed and running:
 docker compose up --build
 ```
 
-- **Frontend Application:** Open `http://localhost:3000`
+- **Frontend Application:** Open `http://localhost:5173` (or `http://localhost:3000` under Docker)
 - **Backend API & Swagger Docs:** Open `http://localhost:8000/docs`
 
 ---
