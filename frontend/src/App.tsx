@@ -4,7 +4,9 @@ import {
   BarChart2, 
   Flame, 
   ExternalLink, 
-  Cpu 
+  Cpu, 
+  AlertCircle, 
+  RotateCw 
 } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { DayAheadCockpit } from './components/DayAheadCockpit';
@@ -26,25 +28,39 @@ export function App() {
   const [metricsData, setMetricsData] = useState<AccuracyMetricsResponse | null>(null);
   const [metricsLoading, setMetricsLoading] = useState<boolean>(false);
 
+  const [apiError, setApiError] = useState<string | null>(null);
+
   const [isMethodologyOpen, setIsMethodologyOpen] = useState<boolean>(false);
   const [isPitchGuideOpen, setIsPitchGuideOpen] = useState<boolean>(false);
 
-  // Load available dates on mount
-  useEffect(() => {
+  // Fetch available dates with strict type safety (BUG-003 fix)
+  const loadDates = () => {
     fetch('/api/dates')
-      .then((res) => res.json())
-      .then((data: string[]) => {
-        if (data && data.length > 0) {
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to load settlement dates`);
+        return res.json();
+      })
+      .then((data: any) => {
+        if (Array.isArray(data) && data.length > 0) {
           setDates(data);
-          // Default to middle of month if present
+          setApiError(null);
           if (data.includes('2026-01-15')) {
             setSelectedDate('2026-01-15');
           } else {
             setSelectedDate(data[0]);
           }
+        } else {
+          throw new Error('API returned non-array dates payload');
         }
       })
-      .catch((err) => console.error('Failed to fetch dates:', err));
+      .catch((err) => {
+        console.error('Failed to fetch dates:', err);
+        setApiError(err.message || 'Unable to connect to Elexon backend service');
+      });
+  };
+
+  useEffect(() => {
+    loadDates();
   }, []);
 
   // Fetch Day-Ahead Cockpit Data whenever selectedDate or gateClosureHour changes
@@ -53,7 +69,7 @@ export function App() {
     setCockpitLoading(true);
     fetch(`/api/forecasts/day-ahead?deliveryDate=${selectedDate}&gateClosureHour=${gateClosureHour}`)
       .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch forecast outturn`);
         return res.json();
       })
       .then((data: DayAheadResponse) => {
@@ -72,7 +88,7 @@ export function App() {
       setMetricsLoading(true);
       fetch(`/api/analytics/metrics?gateClosureHour=${gateClosureHour}`)
         .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to calculate month metrics`);
           return res.json();
         })
         .then((data: AccuracyMetricsResponse) => {
@@ -93,6 +109,33 @@ export function App() {
         onOpenMethodology={() => setIsMethodologyOpen(true)}
         onOpenPitchGuide={() => setIsPitchGuideOpen(true)}
       />
+
+      {/* API Connection Error Banner */}
+      {apiError && (
+        <div 
+          className="dashboard-panel" 
+          style={{ 
+            background: 'rgba(239, 68, 68, 0.15)', 
+            borderColor: 'rgba(239, 68, 68, 0.4)', 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            marginBottom: '1rem',
+            padding: '0.85rem 1.25rem'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#f87171' }}>
+            <AlertCircle size={20} />
+            <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+              Connection Alert: {apiError}. Ensure backend server is running on port 8000.
+            </span>
+          </div>
+          <button className="btn-secondary" onClick={loadDates} style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>
+            <RotateCw size={14} />
+            <span>Retry Connection</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Tab Controls */}
       <nav className="tabs-nav">

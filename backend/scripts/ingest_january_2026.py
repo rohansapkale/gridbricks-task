@@ -46,14 +46,32 @@ def init_db(conn):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_forecast_pub ON forecast_generation(publishTime)")
     conn.commit()
 
-def fetch_json(url):
+import time
+
+def fetch_json(url, max_retries=3, initial_delay=2.0):
     req = urllib.request.Request(url, headers={"User-Agent": "UK-DayAhead-EnergyApp/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"Error fetching {url}: {e}", file=sys.stderr)
-        return []
+    delay = initial_delay
+    for attempt in range(1, max_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 502, 503, 504) and attempt < max_retries:
+                print(f"[RETRY {attempt}/{max_retries}] HTTP {e.code} on {url}. Backing off {delay}s...", file=sys.stderr)
+                time.sleep(delay)
+                delay *= 2
+            else:
+                print(f"[ERROR] HTTP {e.code} fetching {url}: {e}", file=sys.stderr)
+                return []
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"[RETRY {attempt}/{max_retries}] Network error: {e}. Retrying in {delay}s...", file=sys.stderr)
+                time.sleep(delay)
+                delay *= 2
+            else:
+                print(f"[FAILED] Error fetching {url} after {max_retries} attempts: {e}", file=sys.stderr)
+                return []
+    return []
 
 def ingest_actuals(conn, start_date=datetime(2026, 1, 1), end_date=datetime(2026, 2, 1)):
     print(f"--- Ingesting FUELHH (Actual Wind Generation) {start_date.date()} to {end_date.date()} ---")

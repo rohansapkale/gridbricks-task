@@ -6,7 +6,6 @@ from .elexon_service import elexon_service
 class ProcurementService:
     def __init__(self):
         # Diurnal demand curve multiplier (UK typical winter profile across 48 settlement periods)
-        # Low at night (0.75x), morning peak around SP 16-18 (1.15x), afternoon plateau (1.05x), evening peak SP 34-38 (1.25x)
         self.diurnal_demand_weights = self._generate_demand_weights()
 
     def _generate_demand_weights(self) -> List[float]:
@@ -36,26 +35,21 @@ class ProcurementService:
     ) -> Dict[str, Any]:
         """
         Calculates the recommended Day-Ahead thermal procurement schedule for delivery_date.
-        Uses historical error distribution to derive the optimal risk safety buffer.
+        Uses exact continuous empirical residuals (BUG-005 fix) to derive the statistical buffer.
         """
         # 1. Fetch Day-Ahead forecast & actuals for this delivery date
         day_data = elexon_service.get_day_ahead_comparison(delivery_date, gate_closure_hour)
         periods = day_data["periods"]
 
-        # 2. Fetch full month metrics to compute historical error percentiles
-        full_eval = elexon_service.get_full_month_eval(gate_closure_hour)
-        hist_residuals = []
-        for b in full_eval["residualHistogram"]:
-            midpoint = (b["binStart"] + b["binEnd"]) / 2.0
-            hist_residuals.extend([midpoint] * b["count"])
+        # 2. Fetch exact raw residuals across January 2026 for high-precision percentile calculation
+        raw_residuals = elexon_service.get_raw_residuals(gate_closure_hour)
         
-        # When wind forecast is higher than actual (residual > 0), the utility under-generates wind
-        # and needs extra thermal to buffer.
-        over_forecast_errors = [r for r in hist_residuals if r > 0]
+        # When forecast > actual (residual > 0), wind under-delivers and extra thermal is needed
+        over_forecast_errors = [r for r in raw_residuals if r > 0]
         if not over_forecast_errors:
             over_forecast_errors = [1200.0]
 
-        # Calculate buffer based on percentile
+        # Calculate buffer based on exact empirical percentile
         percentile_map = {
             "P50": 50,
             "P75": 75,
@@ -77,18 +71,16 @@ class ProcurementService:
             sp = p["settlementPeriod"]
             weight = self.diurnal_demand_weights[sp - 1]
             demand_mw = round(baseline_demand_mw * weight, 1)
-            wind_fc_mw = p["forecastGeneration"]
+            wind_fc_mw = p["forecastGeneration"] or 0.0
             actual_wind_mw = p["actualGeneration"]
 
             # Recommended thermal procurement
             # Thermal = Demand - Wind Forecast + Safety Buffer
-            # (capped at demand so thermal isn't negative or over demand)
             net_need_mw = demand_mw - wind_fc_mw
             rec_thermal_mw = max(0.0, net_need_mw + safety_buffer_mw)
             rec_thermal_mw = min(demand_mw, rec_thermal_mw)
 
             # Unhedged exposure = shortfall if we did NOT add buffer
-            # If actual wind was lower than forecast, how much shortfall would occur?
             raw_shortfall_mw = 0.0
             if actual_wind_mw is not None:
                 wind_deficit = max(0.0, wind_fc_mw - actual_wind_mw)
@@ -115,7 +107,6 @@ class ProcurementService:
             total_hedged_shortfall_mwh += min(safety_buffer_mw, raw_shortfall_mw) * 0.5
 
         estimated_procurement_cost = round(total_thermal_mwh * thermal_cost_gbp, 2)
-        # Avoided punitive imbalance cash-out spread on the hedged shortfall
         estimated_risk_savings = round(total_hedged_shortfall_mwh * imbalance_spread_gbp, 2)
 
         return {

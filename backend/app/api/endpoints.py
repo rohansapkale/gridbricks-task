@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query, HTTPException
-from typing import List, Optional
+from typing import List
 from ..models.schemas import (
     DayAheadComparisonResponse,
     AccuracyMetricsResponse,
@@ -14,17 +14,31 @@ router = APIRouter()
 @router.get("/dates", response_model=List[str], summary="List available delivery dates")
 def get_dates():
     """Returns all distinct settlement dates available in January 2026."""
-    return elexon_service.get_available_dates()
+    dates = elexon_service.get_available_dates()
+    if not dates:
+        raise HTTPException(status_code=503, detail="No settlement dates found in database. Ingestion required.")
+    return dates
 
 @router.get("/forecasts/day-ahead", response_model=DayAheadComparisonResponse, summary="Day-Ahead Usable Forecast vs Actuals")
 def get_day_ahead_forecasts(
-    deliveryDate: str = Query("2026-01-15", description="Delivery date (YYYY-MM-DD) in January 2026"),
+    deliveryDate: str = Query(
+        "2026-01-15", 
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Delivery date (YYYY-MM-DD) in January 2026"
+    ),
     gateClosureHour: int = Query(11, ge=0, le=23, description="Gate closure hour on Day D-1 (0-23 UTC)")
 ):
     """
     Retrieves the actual generation and the exact wind forecast available at the Day-Ahead
     auction gate closure (published on D-1 prior to the specified hour).
     """
+    available_dates = elexon_service.get_available_dates()
+    if deliveryDate not in available_dates:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Delivery date '{deliveryDate}' not found. Available span: {available_dates[0]} to {available_dates[-1]}."
+        )
+
     try:
         data = elexon_service.get_day_ahead_comparison(
             delivery_date=deliveryDate,
@@ -32,7 +46,7 @@ def get_day_ahead_forecasts(
         )
         return data
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve day-ahead data: {str(e)}")
 
@@ -56,6 +70,13 @@ def calculate_procurement(payload: ProcurementPlanRequest):
     Generates a 48 settlement-period thermal procurement schedule with statistical
     safety buffer (P50/P75/P90/P95) to protect against wind under-delivery and imbalance penalties.
     """
+    available_dates = elexon_service.get_available_dates()
+    if payload.deliveryDate not in available_dates:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Delivery date '{payload.deliveryDate}' not found in dataset."
+        )
+
     try:
         plan = procurement_service.calculate_procurement_plan(
             delivery_date=payload.deliveryDate,
@@ -67,7 +88,7 @@ def calculate_procurement(payload: ProcurementPlanRequest):
         )
         return plan
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate procurement plan: {str(e)}")
 

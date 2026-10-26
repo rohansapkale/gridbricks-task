@@ -411,7 +411,9 @@ export const DayAheadCockpit: React.FC<DayAheadCockpitProps> = ({
                       <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                         {p.forecastPublishTime?.replace('T', ' ').replace('Z', '')}
                       </td>
-                      <td>{p.forecastHorizonHours}h</td>
+                      <td>
+                        {p.forecastHorizonHours !== null && p.forecastHorizonHours !== undefined ? `${p.forecastHorizonHours}h` : 'N/A'}
+                      </td>
                       <td style={{ color: isOver ? '#f87171' : '#34d399', fontWeight: 600 }}>
                         {isOver ? `+${p.residualError.toLocaleString()}` : p.residualError.toLocaleString()}
                       </td>
