@@ -172,7 +172,7 @@ Open `http://localhost:5173` in your browser.
 
 ## 5. Live Cloud Deployment Links
 
-- **Production Web Application (Vercel):** `https://gridpulse-uk.vercel.app` *(or your deployed Vercel URL)*
+- **Production Web Application (Vercel):** https://gridbricks-task.vercel.app
 - **API Backend & OpenAPI Documentation:** `https://gridpulse-backend.onrender.com/docs`
 
 ---
